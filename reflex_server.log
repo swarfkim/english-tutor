@@ -1,0 +1,25 @@
+Warning: Unable to bind to :3000 due to: [Errno 48] Address already in use.
+Info: The frontend will run on port 3001.
+Warning: Unable to bind to :8000 due to: [Errno 48] Address already in use.
+Info: The backend will run on port 8001.
+───────────────────────────── Starting Reflex App ──────────────────────────────
+Setting NODE_PATH to: /Users/swarf/python-proj/english-tutor/pgdata/node_modules
+Starting PGlite server...
+Waiting for TCP server on 127.0.0.1:5432...
+PGlite TCP server started successfully on 127.0.0.1:5432
+Warning: Page admin is being redefined with the same component.
+Warning: Invalid icon tag: check_circle. Please use one of the following: 
+check_check, loader_circle, message_circle_code, message_circle_dashed, 
+message_circle_heart, message_circle_more, message_circle_off, 
+message_circle_plus, message_circle_question, message_circle_reply, ...
+See full list at https://reflex.dev/docs/library/data-display/icon/#icons-list. 
+Using 'circle_help' icon instead.
+[16:46:50] Compiling: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 37/37 0:00:00
+───────────────────────────────── App Running ──────────────────────────────────
+App running at: http://localhost:3001/
+Backend running at: http://0.0.0.0:8001
+Setting NODE_PATH to: /Users/swarf/python-proj/english-tutor/pgdata/node_modules
+Starting PGlite server...
+Waiting for TCP server on 127.0.0.1:5432...
+PGlite TCP server started successfully on 127.0.0.1:5432
+Warning: Page admin is being redefined with the same component.

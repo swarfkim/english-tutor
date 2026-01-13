@@ -9,6 +9,8 @@ class Curriculum(rx.Model, table=True):
     title: str
     description: str
     base_content: str  # LLM uses this to generate session content
+    learning_goals: str = ""  # Specific points to be mastered
+    common_pitfalls: str = ""  # Common mistakes for this level/chapter
 
 
 class AgentPrompt(rx.Model, table=True):

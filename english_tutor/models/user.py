@@ -24,3 +24,4 @@ class Session(rx.Model, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     title: str | None = None
+    is_deleted: bool = Field(default=False)

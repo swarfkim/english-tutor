@@ -4,7 +4,7 @@ from ..state.chat_state import ChatState
 from ..models.user import Session
 
 
-def chat_bubble(msg: dict[str, Any]) -> rx.Component:
+def chat_bubble(msg: dict) -> rx.Component:
     is_user = msg["sender"] == "user"
 
     # Heuristic for table content to allow wider width
@@ -78,22 +78,32 @@ def chat_bubble(msg: dict[str, Any]) -> rx.Component:
 def sidebar_item(session: Session) -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.icon("message-square", size=16),
-            rx.text(
-                rx.cond(session.title, session.title, f"Session {session.id}"),
-                font_size="sm",
-                truncate=True,
-                max_width="150px",
-            ),
-            rx.spacer(),
-            rx.text(
-                rx.cond(
-                    session.created_at,
-                    session.created_at.to(str).split("T")[0],  # Simple YYYY-MM-DD
-                    "",
+            rx.hstack(
+                rx.icon("message-square", size=16),
+                rx.text(
+                    rx.cond(session.title, session.title, f"Session {session.id}"),
+                    font_size="sm",
+                    truncate=True,
+                    max_width="120px",
                 ),
-                font_size="xs",
-                color="gray.400",
+                align_items="center",
+                spacing="2",
+                flex="1",
+                on_click=lambda: ChatState.select_session(session.id),
+                cursor="pointer",
+            ),
+            rx.menu.root(
+                rx.menu.trigger(
+                    rx.icon("ellipsis-vertical", size=16, color="gray"),
+                    cursor="pointer",
+                ),
+                rx.menu.content(
+                    rx.menu.item(
+                        "Delete",
+                        color="red",
+                        on_click=lambda: ChatState.ask_delete_session(session.id),
+                    ),
+                ),
             ),
             width="100%",
             align_items="center",
@@ -101,7 +111,6 @@ def sidebar_item(session: Session) -> rx.Component:
         ),
         padding="0.75em",
         border_radius="8px",
-        cursor="pointer",
         background=rx.cond(
             session.id == ChatState.current_session_id,
             "rgba(99, 102, 241, 0.1)",  # Indigo tint
@@ -113,7 +122,6 @@ def sidebar_item(session: Session) -> rx.Component:
             "gray.700",
         ),
         _hover={"background": "gray.100"},
-        on_click=lambda: ChatState.select_session(session.id),
         width="100%",
     )
 
@@ -129,12 +137,30 @@ def sidebar() -> rx.Component:
         ),
         rx.button(
             rx.icon("plus", size=16),
-            "New Chat",
+            "New Tutoring",
             width="100%",
             variant="solid",
             color_scheme="indigo",
             radius="full",
-            on_click=ChatState.create_new_session,
+            on_click=lambda: ChatState.create_new_session("tutoring"),
+        ),
+        rx.button(
+            rx.icon("gauge", size=16),
+            "Level Test",
+            width="100%",
+            variant="soft",
+            color_scheme="green",
+            radius="full",
+            on_click=lambda: ChatState.create_new_session("placement"),
+        ),
+        rx.button(
+            rx.icon("circle-check", size=16),
+            "Mastery Test",
+            width="100%",
+            variant="soft",
+            color_scheme="orange",
+            radius="full",
+            on_click=lambda: ChatState.create_new_session("progress_test"),
         ),
         rx.divider(),
         rx.vstack(
@@ -143,6 +169,36 @@ def sidebar() -> rx.Component:
             spacing="1",
             overflow_y="auto",
             padding_right="0.5em",  # subtle spacing for scrollbar
+        ),
+        rx.alert_dialog.root(
+            rx.alert_dialog.content(
+                rx.alert_dialog.title("Delete Session"),
+                rx.alert_dialog.description(
+                    "Are you sure you want to delete this chat session? This action cannot be undone."
+                ),
+                rx.hstack(
+                    rx.alert_dialog.cancel(
+                        rx.button(
+                            "Cancel",
+                            variant="soft",
+                            color_scheme="gray",
+                            on_click=ChatState.cancel_delete_session,
+                        ),
+                    ),
+                    rx.alert_dialog.action(
+                        rx.button(
+                            "Delete",
+                            variant="solid",
+                            color_scheme="red",
+                            on_click=ChatState.confirm_delete_session,
+                        ),
+                    ),
+                    spacing="3",
+                    margin_top="16px",
+                    justify="end",
+                ),
+            ),
+            open=ChatState.confirm_dialog_open,
         ),
         width="280px",  # Slightly wider
         height="100%",
@@ -154,13 +210,13 @@ def sidebar() -> rx.Component:
 
 
 def chat_view() -> rx.Component:
-    return rx.box(
+    return rx.vstack(
         navbar(),
         rx.center(
             rx.box(
                 rx.hstack(
                     sidebar(),
-                    rx.container(
+                    rx.box(
                         rx.vstack(
                             rx.box(
                                 rx.heading(
@@ -200,8 +256,9 @@ def chat_view() -> rx.Component:
                                     spacing="4",
                                     padding="1em",
                                 ),
-                                height="100%",
+                                flex="1",
                                 width="100%",
+                                min_height="0",
                                 scrollbars="vertical",
                                 type="hover",
                             ),
@@ -255,18 +312,20 @@ def chat_view() -> rx.Component:
                             align_items="center",
                             width="100%",
                             height="100%",
+                            overflow="hidden",
                         ),
                         padding="0",
                         height="100%",
-                        max_width="100%",
+                        width="100%",
                         flex="1",
+                        overflow="hidden",
                     ),
                     width="100%",
                     height="100%",
                     spacing="0",
                 ),
                 width=["100%", "95%", "1200px"],
-                height="85vh",
+                height="100%",
                 background="white",
                 border_radius="30px",
                 box_shadow="0 25px 50px -12px rgba(0, 0, 0, 0.25)",
@@ -274,11 +333,14 @@ def chat_view() -> rx.Component:
                 border="1px solid #e5e7eb",
             ),
             width="100%",
-            height="calc(100vh - 80px)",
+            flex="1",
             padding="1em",
+            min_height="0",
         ),
         footer(),
-        min_height="100vh",
+        height="100vh",
+        width="100%",
+        spacing="0",
         background="#F3F4F6",
         font_family="Inter, sans-serif",
         on_mount=ChatState.load_sessions,

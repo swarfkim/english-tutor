@@ -1,7 +1,7 @@
 import reflex as rx
 
 from sqlmodel import select, func
-from ..models.content import AgentPrompt
+from ..models.content import AgentPrompt, Curriculum
 from ..models.token_usage import TokenUsage
 
 
@@ -26,6 +26,16 @@ class AdminState(rx.State):
     token_usage_records: list[TokenUsage] = []
     total_tokens: int = 0
     total_cost: float = 0.0
+
+    # Curriculum management
+    curriculums: list[Curriculum] = []
+    selected_level: int = 1
+    edit_curriculum_id: int | None = None
+    curriculum_title: str = ""
+    curriculum_description: str = ""
+    curriculum_base_content: str = ""
+    curriculum_learning_goals: str = ""
+    curriculum_common_pitfalls: str = ""
 
     def load_token_usage(self):
         """Load recent token usage records."""
@@ -56,6 +66,14 @@ class AdminState(rx.State):
         },
         "Tutor": {"key": "tutoring", "path": "english_tutor/prompts/tutor.txt"},
         "Planner": {"key": "planning", "path": "english_tutor/prompts/planner.txt"},
+        "Placement": {
+            "key": "placement",
+            "path": "english_tutor/prompts/placement.txt",
+        },
+        "Progress": {
+            "key": "progress_test",
+            "path": "english_tutor/prompts/progress.txt",
+        },
     }
 
     def set_selected_agent(self, agent_name: str):
@@ -268,3 +286,72 @@ Response only with the improved prompt content or very brief explanation."""
         self.current_prompt_text = text
         self.show_optimizer = False
         return rx.toast.success("AI suggested prompt applied!")
+
+    def load_curriculums(self):
+        """Load all curriculum records."""
+        with rx.session() as session:
+            self.curriculums = session.exec(
+                select(Curriculum).order_by(Curriculum.level)
+            ).all()
+            if not self.curriculums:
+                # Initialize empty if none exist
+                pass
+
+    def select_curriculum_level(self, level: int):
+        """Select a level to edit."""
+        self.selected_level = level
+        with rx.session() as session:
+            cur = session.exec(
+                select(Curriculum).where(Curriculum.level == level)
+            ).first()
+            if cur:
+                self.edit_curriculum_id = cur.id
+                self.curriculum_title = cur.title
+                self.curriculum_description = cur.description
+                self.curriculum_base_content = cur.base_content
+                self.curriculum_learning_goals = cur.learning_goals
+                self.curriculum_common_pitfalls = cur.common_pitfalls
+            else:
+                self.edit_curriculum_id = None
+                self.curriculum_title = f"Level {level}"
+                self.curriculum_description = ""
+                self.curriculum_base_content = ""
+                self.curriculum_learning_goals = ""
+                self.curriculum_common_pitfalls = ""
+
+    def set_curriculum_field(self, field: str, value: str):
+        if field == "title":
+            self.curriculum_title = value
+        elif field == "description":
+            self.curriculum_description = value
+        elif field == "content":
+            self.curriculum_base_content = value
+        elif field == "goals":
+            self.curriculum_learning_goals = value
+        elif field == "pitfalls":
+            self.curriculum_common_pitfalls = value
+
+    def save_curriculum(self):
+        """Save or update curriculum for the selected level."""
+        with rx.session() as session:
+            if self.edit_curriculum_id:
+                cur = session.get(Curriculum, self.edit_curriculum_id)
+            else:
+                cur = session.exec(
+                    select(Curriculum).where(Curriculum.level == self.selected_level)
+                ).first()
+
+            if not cur:
+                cur = Curriculum(level=self.selected_level)
+
+            cur.title = self.curriculum_title
+            cur.description = self.curriculum_description
+            cur.base_content = self.curriculum_base_content
+            cur.learning_goals = self.curriculum_learning_goals
+            cur.common_pitfalls = self.curriculum_common_pitfalls
+
+            session.add(cur)
+            session.commit()
+
+        self.load_curriculums()
+        return rx.toast.success(f"Curriculum for Level {self.selected_level} saved!")

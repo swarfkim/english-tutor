@@ -4,7 +4,8 @@ import reflex as rx
 from sqlmodel import select
 from ..agents.orchestrator import Orchestrator
 from ..models.evaluation import Message
-from ..models.user import Session
+from ..models.user import Session, User
+from ..models.content import Curriculum
 
 
 class ChatState(rx.State):
@@ -31,12 +32,47 @@ class ChatState(rx.State):
     user_id: int = 1
     current_agent: str = "onboarding"
 
+    # Delete session state
+    confirm_dialog_open: bool = False
+    session_to_delete: int | None = None
+
+    def ask_delete_session(self, session_id: int):
+        self.session_to_delete = session_id
+        self.confirm_dialog_open = True
+
+    def cancel_delete_session(self):
+        self.confirm_dialog_open = False
+        self.session_to_delete = None
+
+    async def confirm_delete_session(self):
+        if self.session_to_delete:
+            with rx.session() as db_session:
+                session = db_session.get(Session, self.session_to_delete)
+                if session:
+                    session.is_deleted = True
+                    db_session.add(session)
+                    db_session.commit()
+
+            # Refresh list
+            self.load_sessions()
+            
+            # If we deleted the current session, switch to another or new
+            if self.current_session_id == self.session_to_delete:
+                if self.sessions:
+                    await self.select_session(self.sessions[0].id)
+                else:
+                    await self.create_new_session()
+            
+        self.confirm_dialog_open = False
+        self.session_to_delete = None
+
     def load_sessions(self):
         """Load all sessions for the current user."""
         with rx.session() as session:
             self.sessions = session.exec(
                 select(Session)
                 .where(Session.user_id == self.user_id)
+                .where(Session.is_deleted == False)
                 .order_by(Session.updated_at.desc())
             ).all()
         # If no sessions, create one? Or wait for user.
@@ -116,14 +152,14 @@ class ChatState(rx.State):
         except Exception as e:
             print(f"Failed to generate title: {e}")
 
-    async def create_new_session(self):
+    async def create_new_session(self, session_type: str = "onboarding"):
         """Create a new chat session."""
         if self.current_session_id:
             async for _ in self.generate_title_for_session(self.current_session_id):
                 yield
 
         with rx.session() as db_session:
-            new_session = Session(user_id=self.user_id, session_type="onboarding")
+            new_session = Session(user_id=self.user_id, session_type=session_type)
             db_session.add(new_session)
             db_session.commit()
             db_session.refresh(new_session)
@@ -208,19 +244,43 @@ class ChatState(rx.State):
             # Measure response time
             start_time = time.time()
 
-            # Get response from LLM (now returns tuple)
-            response_text, usage_metadata = agent.get_response(self.messages)
+            # Prepare kwargs for the agent (e.g. curriculum data for ProgressAgent)
+            agent_kwargs = {}
+            if self.current_agent == "progress_test":
+                with rx.session() as db_session:
+                    user = db_session.get(User, self.user_id)
+                    cur = db_session.exec(
+                        select(Curriculum).where(Curriculum.level == user.current_level)
+                    ).first()
+                    if cur:
+                        agent_kwargs = {
+                            "level": cur.level,
+                            "chapter_title": cur.title,
+                            "learning_goals": cur.learning_goals,
+                            "common_pitfalls": cur.common_pitfalls,
+                        }
 
-            end_time = time.time()
-            response_time_ms = int((end_time - start_time) * 1000)
-
+            # Get response from LLM (streaming)
             ai_timestamp = datetime.now().strftime("%H:%M")
             ai_msg = {
                 "sender": "agent",
-                "content_text": response_text,
+                "content_text": "",
                 "created_at": ai_timestamp,
             }
             self.messages.append(ai_msg)
+            msg_index = len(self.messages) - 1
+
+            usage_metadata = {}
+            async for chunk_text, meta in agent.stream_response(
+                self.messages[:-1], **agent_kwargs
+            ):
+                if chunk_text:
+                    self.messages[msg_index]["content_text"] += chunk_text
+                    # Trigger UI update
+                    self.messages = list(self.messages)
+                    yield
+                if meta:
+                    usage_metadata = meta
 
             # Save to DB
             with rx.session() as db_session:
@@ -236,26 +296,27 @@ class ChatState(rx.State):
                 agent_message = Message(
                     session_id=self.current_session_id,
                     sender="agent",
-                    content_text=ai_msg["content_text"],
+                    content_text=self.messages[msg_index]["content_text"],
                 )
                 db_session.add(agent_message)
                 db_session.flush()  # Get message ID
 
                 # Save token usage
-                token_usage = TokenUsage(
-                    message_id=agent_message.id,
-                    session_id=self.current_session_id,
-                    user_id=self.user_id,
-                    model_name=usage_metadata.get("model_name", "unknown"),
-                    input_message=current_text,
-                    output_message=response_text,
-                    prompt_tokens=usage_metadata.get("prompt_tokens", 0),
-                    completion_tokens=usage_metadata.get("completion_tokens", 0),
-                    cached_prompt_tokens=usage_metadata.get("cached_prompt_tokens", 0),
-                    total_tokens=usage_metadata.get("total_tokens", 0),
-                    response_time_ms=response_time_ms,
-                )
-                db_session.add(token_usage)
+                if usage_metadata:
+                    token_usage = TokenUsage(
+                        message_id=agent_message.id,
+                        session_id=self.current_session_id,
+                        user_id=self.user_id,
+                        model_name=usage_metadata.get("model_name", "unknown"),
+                        input_message=current_text,
+                        output_message=self.messages[msg_index]["content_text"],
+                        prompt_tokens=usage_metadata.get("prompt_tokens", 0),
+                        completion_tokens=usage_metadata.get("completion_tokens", 0),
+                        total_tokens=usage_metadata.get("total_tokens", 0),
+                    )
+                    db_session.add(token_usage)
+
+                db_session.commit()
 
                 # Update session updated_at
                 session_obj = db_session.get(Session, self.current_session_id)
